@@ -21,6 +21,10 @@ int16_t magx, tempm, templ;
 #define MAG_CS LATDbits.LATD6
 #define CS LATDbits.LATD6
 
+int16_t data, data2;
+char buff[10];
+
+
 char uart_buffer[BUFFER_SIZE];
 int buffer_head = 0;
 int buffer_tail = 0;
@@ -42,6 +46,14 @@ void uart_setup(int UART_n, int stop, int parity) {
         default:
             return;
     }
+}
+
+int16_t spi_rewr(int16_t reg){
+    while (SPI1STATbits.SPITBF);   
+    SPI1BUF = reg;
+    while (!SPI1STATbits.SPIRBF);  
+    int16_t ret = SPI1BUF;
+    return ret;
 }
 
 int main(void) {
@@ -71,7 +83,8 @@ int main(void) {
     RPOR11bits.RP108R = 0b000110;           // SCK1
     
     SPI1CON1bits.MSTEN = 1;                 // master mode
-    SPI1CON1bits.MODE16 = 0;                // use 8-bit mode
+//    SPI1CON1bits.MODE16 = 0;                // use 8-bit mode
+    SPI1CON1bits.MODE16 = 1;                // use 16-bit mode
     SPI1CON1bits.PPRE = 0;                  // 64:1 primary prescaler
     SPI1CON1bits.SPRE = 7;                  // 1:1 secondary prescaler
     SPI1CON1bits.CKP = 1;                   // idle high
@@ -98,43 +111,21 @@ int main(void) {
     // clear it (trash here).
     
     // MAGNETOMETER SUSPENDED TO SLEEP
-    LATDbits.LATD6 = 0;                 // enable
-    unsigned int trash = SPI1BUF; 
-    while (SPI1STATbits.SPITBF);
-    SPI1BUF = 0x4B;
-    while (!SPI1STATbits.SPIRBF);
-    trash = SPI1BUF;
-    while (SPI1STATbits.SPITBF);
-    SPI1BUF = 0x01;
-    while (!SPI1STATbits.SPIRBF);
-    trash = SPI1BUF;
-    LATDbits.LATD6 = 1;                 // disable
+    CS = 0;                 // enable
+    unsigned int trash = spi_rewr(0x4B01);
+    CS = 1;                 // disable
     tmr_wait_ms(TIMER1, 5);
     
     // MAGNETOMETER SLEEP TO ACTIVE 
-    LATDbits.LATD6 = 0;
-    while (SPI1STATbits.SPITBF);
-    SPI1BUF = 0x4C;                     
-    while (!SPI1STATbits.SPIRBF);
-    trash = SPI1BUF;
-    while (SPI1STATbits.SPITBF);
-    SPI1BUF = 0x00;                     
-    while (!SPI1STATbits.SPIRBF);
-    trash = SPI1BUF;
-    LATDbits.LATD6 = 1;
+    CS = 0;
+    trash = spi_rewr(0x4C00);
+    CS = 1;
     tmr_wait_ms(TIMER1, 5);
         
     // MAGNETOMETER REQUEST FOR CHIP ID
-    LATDbits.LATD6 = 0;            
-    while (SPI1STATbits.SPITBF);   
-    SPI1BUF = 0x40 | 0x80;
-    while (!SPI1STATbits.SPIRBF);  
-    trash = SPI1BUF;
-    while (SPI1STATbits.SPITBF);
-    SPI1BUF = 0x00;  
-    while (!SPI1STATbits.SPIRBF);
-    uint8_t chip_id = SPI1BUF;  
-    LATDbits.LATD6 = 1;            
+    CS = 0;             
+    int16_t chip_id = spi_rewr(0x4000 | 0x8000);
+    CS = 1;            
     
     tmr_wait_ms(TIMER1, 10);
 
@@ -146,71 +137,37 @@ int main(void) {
     U1TXREG = 'E';
     while (U1STAbits.UTXBF);
     
-    // MAGNETOMETER X: Request 0x42 and read two times (for 0x42 and 0x43)
-    data = SPI1BUF;
-    
-    CS = 0;
-    while (SPI1STATbits.SPITBF == 1);   
-    SPI1BUF = ((0x42 | 0x80)<<8);
-    while (!SPI1STATbits.SPIRBF);
-    CS = 1;
-    trash = SPI1BUF;
-    data  = 0b11101011;
-    data  = (data&0xFF) >>3;
-    
-    CS = 0;
-    while (SPI1STATbits.SPITBF == 1);   
-    SPI1BUF = ((0x43 | 0x80)<<8);
-    while (!SPI1STATbits.SPIRBF);
-    CS = 1;
-    data2 = SPI1BUF;
-    data2 = 0b10110010;
-    data2 = (data2 & 0xFF)<<5;
-    //int16_t x_data = data2|data;
-    int16_t x_data = (data2|data)<<3;
-    x_data = x_data / 8;
-    
-    tmr_wait_ms(TIMER1, 10);
+    while(1){
+        // MAGNETOMETER X: Request 0x42/read and Request 0x43/read
+        CS = 0;
+        data = spi_rewr(0x4200 | 0x8000);
+        CS = 1;
+        data  = (data&0xFF) >>3;
 
-    sprintf(buff, "XL:%04X,XM:%04X,X:%d", data, data2, x_data);
-    for (char i = 0; i < 32; i++) {
-        while (U2STAbits.UTXBF);
-        U2TXREG = buff[i];
-    }
+        CS = 0;
+        data2 = spi_rewr(0x4300 | 0x8000);
+        CS = 1;
+        data2 = (data2 & 0xFF)<<5;
+        
+        int16_t x_data = (data2|data)<<3;
+        x_data = x_data / 8;
 
-    // LATDbits.LATD6 = 0;            
-    // while (SPI1STATbits.SPITBF);   
-    // SPI1BUF = 0x42 | 0x80;
-    // while (!SPI1STATbits.SPIRBF);  
-    // trash = SPI1BUF;
-    // while (SPI1STATbits.SPITBF);
-    // SPI1BUF = 0x00;  
-    // while (!SPI1STATbits.SPIRBF);
-    // uint16_t magx_low  = SPI1BUF;
-    // while (SPI1STATbits.SPITBF);
-    // SPI1BUF = 0x00;  
-    // while (!SPI1STATbits.SPIRBF);
-    // uint16_t magx_high = SPI1BUF;
-    // LATDbits.LATD6 = 1;            
-    // tmr_wait_ms(TIMER1, 2);
+        tmr_wait_ms(TIMER1, 10);
 
-    // U1TXREG = magx_high;
-    // while (U1STAbits.UTXBF);
-    // U1TXREG = magx_low;
-    // while (U1STAbits.UTXBF);
-    // U1TXREG = 'E';
-    // while (U1STAbits.UTXBF);
-    
-    // templ = (magx_low & 0x00F8);            // 0000 0000 1111 1000
-    // tempm = (magx_high) << 8;               // 0x00vv -> 0xvv00
-    // magx = (tempm | templ) >> 3;            // VVF8 -> 
-    
-    // U1TXREG = magx / 256;
-    // while (U1STAbits.UTXBF);
-    // U1TXREG = magx % 256;
-    // while (U1STAbits.UTXBF);
-    
-    while(1);
+        sprintf(buff, "X:%d", x_data);
+        for (char i = 0; i < 10; i++) {
+            U1TXREG = buff[i];
+            while (U1STAbits.UTXBF);
+        }
+        
+        U1TXREG = ' ';
+        while (U1STAbits.UTXBF);
+        U1TXREG = '-';
+        while (U1STAbits.UTXBF);
+        U1TXREG = ' ';
+        while (U1STAbits.UTXBF);
+        tmr_wait_ms_3(TIMER2, 1000);
+    };
     
     return 0;
 }
