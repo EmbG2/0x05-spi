@@ -1,4 +1,3 @@
-// (X-axis)
 #include "xc.h"
 #include "timer.h"
 #include <stdio.h>
@@ -9,7 +8,7 @@
 #define BRGVAL      (FCY / BAUDRATE) / 16 - 1
 
 #define MAG_CS LATDbits.LATD6
-
+#define NUM_READINGS 6
 char buff[35];
 
 #define MOVING_AVERAGE_SIZE 10 
@@ -19,6 +18,8 @@ int16_t moving_average_buffer_z[MOVING_AVERAGE_SIZE];
 uint8_t buffer_x_index = 0;
 uint8_t buffer_y_index = 0;
 uint8_t buffer_z_index = 0;
+
+uint8_t readings[NUM_READINGS];
 
 int16_t calculate_moving_average(int16_t new_value, int16_t buffer[MOVING_AVERAGE_SIZE], uint8_t * idx) {
     buffer[*idx] = new_value;
@@ -64,6 +65,13 @@ uint8_t spi_read(uint8_t reg) {
     spi_transfer(reg | 0x80); // MSB=1 for read
     uint8_t val = spi_transfer(0x00);
     return val;
+}
+
+void spi_read_multiple(uint8_t readings[NUM_READINGS], uint8_t first_addr){
+    readings[0] = spi_read(first_addr);
+    for (int i=1; i<NUM_READINGS-1; i++){
+        readings[i] = spi_transfer(0x00);
+    }
 }
 
 int16_t merge_significant_bits(uint8_t low, uint8_t high, int axis){
@@ -139,30 +147,20 @@ int main(void) {
     while (U1STAbits.UTXBF);
 
     while (1) {
+        MAG_CS = 0;
+        spi_read_multiple(readings, 0x42);
+        MAG_CS = 1;
+        
         // (X-axis)
-        MAG_CS = 0;
-        uint8_t low_x = spi_read(0x42);
-        uint8_t high_x = spi_read(0x43);
-        MAG_CS = 1;
-        int16_t x_data = merge_significant_bits(low_x, high_x, 1);
+        int16_t x_data = merge_significant_bits(readings[0], readings[1], 1);
         int16_t average_x = calculate_moving_average(x_data, moving_average_buffer_x, &buffer_x_index);
-
         // (Y-axis)
-        MAG_CS = 0;
-        uint8_t low_y = spi_read(0x44);
-        uint8_t high_y = spi_read(0x45);
-        MAG_CS = 1;
-        int16_t y_data = merge_significant_bits(low_y, high_y, 2);
+        int16_t y_data = merge_significant_bits(readings[2], readings[3], 2);
         int16_t average_y = calculate_moving_average(y_data, moving_average_buffer_y, &buffer_y_index);
-
         // (Z-axis)
-        MAG_CS = 0;
-        uint8_t low_z = spi_read(0x46);
-        uint8_t high_z = spi_read(0x47);
-        MAG_CS = 1;
-        int16_t z_data = merge_significant_bits(low_z, high_z, 3);
+        int16_t z_data = merge_significant_bits(readings[4], readings[5], 3);
         int16_t average_z = calculate_moving_average(z_data, moving_average_buffer_z, &buffer_z_index);
-
+        
         tmr_wait_ms(TIMER1, 10);
         
         // calculating the direction
