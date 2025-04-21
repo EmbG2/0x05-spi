@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project>
+  <executable name="dist/default/debug/0x05-spi.debug.elf">
+    <memory name="data">
+      <units>bytes</units>
+      <length>53248</length>
+      <used>108</used>
+      <free>53140</free>
+    </memory>
+    <memory name="program">
+      <units>bytes</units>
+      <length>524544</length>
+      <used>4833</used>
+      <free>519711</free>
+    </memory>
+  </executable>
+</project>

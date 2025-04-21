@@ -24,7 +24,7 @@ CLEAN_SUBPROJECTS=${CLEAN_SUBPROJECTS_${SUBPROJECTS}}
 
 
 # Project Name
-PROJECTNAME=spi.X
+PROJECTNAME=0x05-spi
 
 # Active Configuration
 DEFAULTCONF=default

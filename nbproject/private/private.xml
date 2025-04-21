@@ -3,7 +3,12 @@
     <editor-bookmarks xmlns="http://www.netbeans.org/ns/editor-bookmarks/2" lastBookmarkId="0"/>
     <open-files xmlns="http://www.netbeans.org/ns/projectui-open-files/2">
         <group>
-            <file>file:/D:/UniGe/Embedded%20Systems%20(5)/projects/spi.X/newmainXC16.c</file>
+            <file>file:/D:/UNIGE/Embedded%20Systems/code/0x05-spi/uart.h</file>
+            <file>file:/D:/UNIGE/Embedded%20Systems/code/0x05-spi/timer.c</file>
+            <file>file:/D:/UNIGE/Embedded%20Systems/code/0x05-spi/spi.h</file>
+            <file>file:/D:/UNIGE/Embedded%20Systems/code/0x05-spi/newmainXC16.c</file>
+            <file>file:/D:/UNIGE/Embedded%20Systems/code/0x05-spi/spi.c</file>
+            <file>file:/D:/UNIGE/Embedded%20Systems/code/0x05-spi/uart.c</file>
         </group>
     </open-files>
 </project-private>

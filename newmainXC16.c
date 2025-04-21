@@ -1,5 +1,7 @@
 #include "xc.h"
 #include "timer.h"
+#include "spi.h"
+#include "uart.h"
 #include <stdio.h>
 #include <math.h>
 
@@ -21,7 +23,7 @@ uint8_t buffer_z_index = 0;
 
 uint8_t readings[NUM_READINGS];
 
-int16_t calculate_moving_average(int16_t new_value, int16_t buffer[MOVING_AVERAGE_SIZE], uint8_t * idx) {
+int16_t calculate_moving_average(int16_t new_value, int16_t buffer[MOVING_AVERAGE_SIZE], uint8_t *idx) {
     buffer[*idx] = new_value;
     *idx = (*idx + 1) % MOVING_AVERAGE_SIZE;
     int16_t sum = 0; 
@@ -31,57 +33,14 @@ int16_t calculate_moving_average(int16_t new_value, int16_t buffer[MOVING_AVERAG
     return (int16_t)(sum / MOVING_AVERAGE_SIZE);
 }
 
-void uart_setup(int UART_n, int stop, int parity) {
-    switch (UART_n) {
-        case 1:
-            U1MODEbits.UARTEN = 0;
-            U1MODEbits.STSEL = stop;
-            U1MODEbits.PDSEL = parity;
-            U1MODEbits.BRGH = 0;
-            U1BRG = BRGVAL;
-            IFS0bits.U1RXIF = 0;
-            IEC0bits.U1RXIE = 1;
-            U1MODEbits.UARTEN = 1;
-            U1STAbits.UTXEN = 1;
-            break;
-        default:
-            return;
-    }
-}
-
-uint8_t spi_transfer(uint8_t byte) {
-    while (SPI1STATbits.SPITBF);
-    SPI1BUF = byte;
-    while (!SPI1STATbits.SPIRBF);
-    return SPI1BUF;
-}
-
-void spi_write(uint8_t reg, uint8_t value) {
-    spi_transfer(reg & 0x7F); // MSB=0 for write
-    spi_transfer(value);
-}
-
-uint8_t spi_read(uint8_t reg) {
-    spi_transfer(reg | 0x80); // MSB=1 for read
-    uint8_t val = spi_transfer(0x00);
-    return val;
-}
-
-void spi_read_multiple(uint8_t readings[NUM_READINGS], uint8_t first_addr){
-    readings[0] = spi_read(first_addr);
-    for (int i=1; i<NUM_READINGS-1; i++){
-        readings[i] = spi_transfer(0x00);
-    }
-}
-
-int16_t merge_significant_bits(uint8_t low, uint8_t high, int axis){
+int16_t merge_significant_bits(uint8_t low, uint8_t high, int axis) {
     int16_t data;
-    if (axis == 1 || axis == 2){                        // X and Y
-        uint8_t masked_low = low & 0xF8; // 0xF8 = 1111 1000
+    if (axis == 1 || axis == 2) {
+        uint8_t masked_low = low & 0xF8;
         data = (int16_t)((high << 8) | masked_low);
         data = data / 8;
-    } else {                                            // Z
-        uint8_t masked_low = low & 0xFE; // 0xFE = 1111 1110
+    } else {
+        uint8_t masked_low = low & 0xFE;
         data = (int16_t)((high << 8) | masked_low);
         data = data / 8;
     }
@@ -91,48 +50,24 @@ int16_t merge_significant_bits(uint8_t low, uint8_t high, int axis){
 int main(void) {
     ANSELA = ANSELB = ANSELC = ANSELD = ANSELE = ANSELG = 0x0000;
 
-    // UART-1 setup
-    RPOR0bits.RP64R = 1;
-    RPINR18bits.U1RXR = 75;
-    uart_setup(1, 1, 0);
+    UART_Init(UART_1);
+    
+    send_uart_char(UART_1, 'S');
+    send_uart_char(UART_1, '\n');
 
-    U1TXREG = 'S'; 
-    while (U1STAbits.UTXBF);
-
-    // SPI-1 setup
-    TRISAbits.TRISA1 = 1;                   // MISO
-    TRISFbits.TRISF12 = 0;                  // SCK
-    TRISFbits.TRISF13 = 0;                  // MOSI
-    TRISBbits.TRISB3 = 0;                   // CS2
-    LATBbits.LATB3 = 1;                     // Disable
-    TRISBbits.TRISB4 = 0;                   // CS1
-    LATBbits.LATB4 = 1;                     // Disable
-    TRISDbits.TRISD6 = 0;                   // CS3
-    LATDbits.LATD6 = 1;                     // Disable
-    RPINR20bits.SDI1R = 0b0010001;          // MISO (SDI1) - RPI17
-    RPOR12bits.RP109R = 0b000101;           // MOSI (SDO1) - RF13
-    RPOR11bits.RP108R = 0b000110;           // SCK1
-    SPI1CON1bits.MSTEN = 1;                 // master mode
-    SPI1CON1bits.MODE16 = 0;                // 8-bit mode
-    SPI1CON1bits.PPRE = 0;                  // 64:1 primary prescaler
-    SPI1CON1bits.SPRE = 7;                  // 1:1 secondary prescaler
-    SPI1CON1bits.CKP = 1;                   // clock polarity
-    SPI1STATbits.SPIROV = 0;                //
-    SPI1STATbits.SPIEN = 1;                 // enable SPI
-
+    spi_init();
     tmr_wait_ms(TIMER1, 100);
 
     MAG_CS = 0;
-    spi_write(0x4B, 0x01);                  // Suspend X
+    spi_write(0x4B, 0x01);
     MAG_CS = 1;
     tmr_wait_ms(TIMER1, 5);
 
     MAG_CS = 0;
-    spi_write(0x4C, 0x30);                  // Set X to normal mode
+    spi_write(0x4C, 0x30);
     MAG_CS = 1;
     tmr_wait_ms(TIMER1, 5);
     
-    // Read chip ID from 0x40
     MAG_CS = 0;
     uint8_t chip_id = spi_read(0x40);
     MAG_CS = 1;
@@ -145,39 +80,41 @@ int main(void) {
     while (U1STAbits.UTXBF);
     U1TXREG = 'E';
     while (U1STAbits.UTXBF);
+    
+    send_uart_char(UART_1, '\n');
 
     while (1) {
         MAG_CS = 0;
         spi_read_multiple(readings, 0x42);
         MAG_CS = 1;
         
-        // (X-axis)
         int16_t x_data = merge_significant_bits(readings[0], readings[1], 1);
         int16_t average_x = calculate_moving_average(x_data, moving_average_buffer_x, &buffer_x_index);
-        // (Y-axis)
+
         int16_t y_data = merge_significant_bits(readings[2], readings[3], 2);
         int16_t average_y = calculate_moving_average(y_data, moving_average_buffer_y, &buffer_y_index);
-        // (Z-axis)
+
         int16_t z_data = merge_significant_bits(readings[4], readings[5], 3);
         int16_t average_z = calculate_moving_average(z_data, moving_average_buffer_z, &buffer_z_index);
         
         tmr_wait_ms(TIMER1, 10);
-        
-        // calculating the direction
+
         int heading_deg = atan2(average_y, average_x) * (180.0 / M_PI);
 
-        // Send data over UART
-        sprintf(buff, "X:%d Y:%d Z:%d D:%d    ", average_x, average_y, average_z, heading_deg);
-        for (char i = 0; i < 35; i++) {
-            U1TXREG = buff[i];
-            while (U1STAbits.UTXBF);
-        }
-        U1TXREG = ' ';
-        while (U1STAbits.UTXBF);
-        U1TXREG = '-';
-        while (U1STAbits.UTXBF);
-        U1TXREG = ' ';
-        while (U1STAbits.UTXBF);
+        char buff[32];
+
+        sprintf(buff, "MAGX:%d\n", average_x);
+        send_uart_string(buff);
+
+        sprintf(buff, "MAGXY:%d\r\n", average_y);
+        send_uart_string(buff);
+
+        sprintf(buff, "MAGXZ:%d\r\n", average_z);
+        send_uart_string(buff);
+
+        sprintf(buff, "MAGXD:%d\r\n", heading_deg);
+        send_uart_string(buff);
+
 
         tmr_wait_ms_3(TIMER2, 1000);
     }

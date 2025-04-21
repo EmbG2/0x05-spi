@@ -1,3 +1,8 @@
-build/default/production/newmainXC16.o: newmainXC16.c timer.h
+build/default/production/newmainXC16.o: newmainXC16.c timer.h spi.h \
+ uart.h
 
 timer.h:
+
+spi.h:
+
+uart.h:
